@@ -1,0 +1,1653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FireChat & Social</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Font Awesome -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<!-- FingerprintJS -->
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+
+<script>
+// Safety check to ensure Tailwind is loaded before configuring
+if (typeof tailwind !== 'undefined') {
+    tailwind.config = {
+        darkMode: 'class',
+        theme: { extend: {} }
+    }
+}
+</script>
+
+<style>
+body { font-family: 'Inter', sans-serif; transition: background-color 0.3s, color 0.3s; }
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+.message-enter { animation: slideIn 0.3s ease-out forwards; }
+@keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+.fade-enter { animation: fadeIn 0.3s ease-out forwards; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+/* Code Editor */
+.code-editor { font-family: 'Courier New', Courier, monospace; background-color: #1e1e1e; color: #d4d4d4; }
+
+.tab-active { border-bottom: 2px solid #6366f1; color: #6366f1; }
+.dark .tab-active { color: #818cf8; border-color: #818cf8; }
+.tab-inactive { color: #94a3b8; }
+.tab-inactive:hover { color: #475569; }
+.dark .tab-inactive:hover { color: #cbd5e1; }
+
+.context-menu-item {
+display: block; width: 100%; text-align: left; padding: 8px 16px; font-size: 14px;
+cursor: pointer; transition: background-color 0.2s;
+}
+.context-menu-item:hover { background-color: #f3f4f6; }
+.dark .context-menu-item:hover { background-color: #334155; }
+
+.reaction-pill {
+display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 999px;
+background-color: rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1);
+font-size: 10px; cursor: pointer; margin-top: 2px; margin-right: 2px;
+}
+.dark .reaction-pill { background-color: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
+
+.highlight-reply { animation: highlightPulse 2s ease-out; }
+@keyframes highlightPulse { 0% { background-color: rgba(99, 102, 241, 0.3); } 100% { background-color: transparent; } }
+
+.mention-highlight {
+    background-color: rgba(253, 224, 71, 0.3); /* Yellow-ish highlight */
+    border-left: 3px solid #eab308;
+}
+.dark .mention-highlight {
+    background-color: rgba(234, 179, 8, 0.2);
+    border-left: 3px solid #fbbf24;
+}
+
+/* Updated Text Wrapping - Cleaner look */
+.message-bubble {
+    overflow-wrap: break-word; /* Prevents overflow */
+    word-wrap: break-word;
+    word-break: break-word; 
+    white-space: pre-wrap; /* Respects newlines */
+    max-width: 100%;
+}
+
+/* Toast Notification */
+#notification-toast {
+position: fixed; top: 20px; right: 20px; z-index: 100;
+transform: translateX(120%); transition: transform 0.3s ease-out;
+}
+#notification-toast.show { transform: translateX(0); }
+</style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-gray-800 bg-gray-50 dark:bg-slate-900 dark:text-gray-100" onclick="hideContextMenu()">
+
+<!-- Notification Toast -->
+<div id="notification-toast" class="bg-white dark:bg-slate-800 border-l-4 border-indigo-500 shadow-2xl rounded-lg p-4 flex items-center gap-3 max-w-sm">
+<div class="bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded-full w-10 h-10 flex items-center justify-center">
+<i class="fa-solid fa-bell"></i>
+</div>
+<div>
+<h4 class="font-bold text-sm dark:text-white">New Message</h4>
+<p id="toast-message" class="text-xs text-gray-500 dark:text-gray-400">You received a DM.</p>
+</div>
+</div>
+
+<!-- Header -->
+<header class="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-4 py-3 flex items-center justify-between shadow-sm z-30">
+<div class="flex items-center gap-4">
+<button id="view-toggle-btn" class="w-10 h-10 bg-indigo-600 hover:bg-indigo-700 rounded-full flex items-center justify-center text-white text-lg shadow-md transition-transform active:scale-95" title="Switch View">
+<i class="fa-solid fa-gamepad"></i>
+</button>
+<h1 id="header-title" class="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 to-purple-600 hidden md:block">Global Chat</h1>
+</div>
+<div class="flex items-center gap-3">
+
+<button id="btn-create-main" class="hidden md:flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full font-medium text-sm transition-colors shadow-sm">
+<i class="fa-solid fa-plus"></i> Create
+</button>
+<button id="btn-friends" class="relative w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 flex items-center justify-center text-gray-600 dark:text-gray-300 transition-colors">
+<i class="fa-solid fa-user-group"></i>
+<!-- Badge: color set dynamically by JS -->
+<div id="friend-badge" class="hidden absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white dark:border-slate-800"></div>
+</button>
+<button id="btn-profile" class="w-9 h-9 rounded-full overflow-hidden border border-gray-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 relative">
+<div id="header-avatar-container" class="w-full h-full"></div>
+</button>
+</div>
+</header>
+
+<!-- Main Container -->
+<div class="flex-1 relative overflow-hidden">
+
+<!-- View 1: Global Chat (Default) -->
+<div id="view-chat" class="absolute inset-0 flex flex-col z-10 transition-transform duration-300 bg-[#fafafa] dark:bg-slate-900">
+<!-- DM Header (Hidden by default) -->
+<div id="dm-header" class="hidden bg-indigo-50 dark:bg-indigo-900/20 p-3 flex justify-between items-center border-b border-indigo-100 dark:border-indigo-900/30">
+<span id="dm-recipient-name" class="font-bold text-indigo-700 dark:text-indigo-300 text-sm">User</span>
+<button onclick="window.exitDm()" class="text-xs bg-white dark:bg-slate-800 border border-indigo-200 dark:border-slate-600 px-2 py-1 rounded hover:bg-gray-50">Back to Global</button>
+</div>
+
+<!-- Messages -->
+<div id="chat-container" class="flex-1 overflow-y-auto p-4 space-y-3 bg-[#fafafa] dark:bg-slate-900 scrollbar-hide">
+<div id="loading-spinner" class="flex justify-center py-4"><i class="fa-solid fa-circle-notch fa-spin text-indigo-500"></i></div>
+<div id="messages-list" class="flex flex-col space-y-2"></div>
+</div>
+
+<!-- Chat Input -->
+<div class="p-3 bg-white dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700 relative">
+<!-- Reply Banner -->
+<div id="reply-banner" class="hidden absolute -top-10 left-0 right-0 bg-gray-100 dark:bg-slate-700 px-4 py-2 border-b border-gray-200 dark:border-slate-600 flex justify-between items-center text-xs">
+<span class="truncate text-gray-600 dark:text-gray-300">Replying to <b id="reply-target-name">User</b></span>
+<button onclick="window.cancelReply()" class="text-gray-500 hover:text-red-500"><i class="fa-solid fa-times"></i></button>
+</div>
+
+<div id="message-input-area" class="flex items-end gap-2 max-w-4xl mx-auto">
+<button type="button" onclick="document.getElementById('chat-image-input').click()" class="text-gray-400 hover:text-indigo-500 p-2"><i class="fa-solid fa-image"></i></button>
+<input type="file" id="chat-image-input" accept="image/*" class="hidden">
+<textarea id="message-input" rows="1" class="flex-1 bg-gray-100 dark:bg-slate-700 border-0 rounded-2xl py-3 px-4 resize-none focus:ring-1 focus:ring-indigo-500 outline-none scrollbar-hide dark:text-white" placeholder="Message... (/FireBot for help)"></textarea>
+<button id="send-btn" class="bg-indigo-600 text-white rounded-full w-10 h-10 flex items-center justify-center shadow-md hover:bg-indigo-700 transition-colors"><i class="fa-solid fa-paper-plane text-sm"></i></button>
+</div>
+</div>
+</div>
+
+<!-- View 2: Content/Games (Hidden by default) -->
+<div id="view-content" class="absolute inset-0 flex flex-col bg-gray-50 dark:bg-slate-900 z-20 transform translate-x-full transition-transform duration-300">
+<!-- Tabs -->
+<div class="flex items-center justify-center border-b border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 sticky top-0 z-10 shadow-sm">
+<button onclick="window.switchMainTab('discover')" id="tab-discover" class="px-6 py-4 font-semibold text-sm transition-colors tab-active">Discover</button>
+<button onclick="window.switchMainTab('mine')" id="tab-mine" class="px-6 py-4 font-semibold text-sm transition-colors tab-inactive">My Stuff</button>
+</div>
+
+<!-- Feed -->
+<div id="main-feed" class="flex-1 overflow-y-auto p-4 md:p-8 scrollbar-hide">
+<div id="feed-discover" class="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20"></div>
+<div id="feed-mine" class="hidden max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
+<!-- Create New Card -->
+<div onclick="window.openCreationModal()" class="bg-white dark:bg-slate-800 rounded-xl border-2 border-dashed border-gray-300 dark:border-slate-600 flex flex-col items-center justify-center min-h-[250px] cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 group transition-all">
+<div class="w-16 h-16 rounded-full bg-indigo-50 dark:bg-slate-700 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+<i class="fa-solid fa-plus text-2xl text-indigo-600 dark:text-indigo-400"></i>
+</div>
+<span class="font-bold text-gray-600 dark:text-gray-300">Create New</span>
+</div>
+</div>
+</div>
+
+<!-- Mobile Create FAB -->
+<button onclick="window.openCreationModal()" class="md:hidden absolute bottom-6 right-6 w-14 h-14 bg-indigo-600 text-white rounded-full shadow-lg flex items-center justify-center text-2xl hover:bg-indigo-700 z-20">
+<i class="fa-solid fa-plus"></i>
+</button>
+</div>
+</div>
+
+<!-- Context Menu -->
+<div id="context-menu" class="fixed bg-white dark:bg-slate-800 shadow-xl rounded-lg py-1 w-48 hidden z-50 border border-gray-200 dark:border-slate-700 overflow-hidden">
+<!-- Injected via JS -->
+</div>
+
+<!-- Admin Panel (Ctrl+9) -->
+<div id="admin-panel" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center">
+<div class="bg-slate-800 rounded-xl p-6 w-96 border border-red-500 shadow-2xl text-white">
+<h2 class="text-xl font-bold mb-4 text-red-500">SYSTEM ADMIN</h2>
+
+<div class="mb-4">
+<label class="text-xs uppercase font-bold text-gray-400">Broadcast Message</label>
+<textarea id="admin-broadcast-text" class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm mt-1 focus:outline-none focus:border-red-500" rows="3" placeholder="Message to all users..."></textarea>
+<button onclick="window.adminBroadcast()" class="mt-2 w-full bg-blue-600 hover:bg-blue-700 py-2 rounded font-bold transition-colors">Send Broadcast</button>
+</div>
+
+<div class="border-t border-slate-700 pt-4 mb-4">
+<label class="text-xs uppercase font-bold text-gray-400">Emergency Actions</label>
+<button onclick="window.adminForceRefresh()" class="mt-2 w-full bg-red-600 hover:bg-red-700 py-2 rounded font-bold transition-colors text-xs">FORCE REFRESH ALL</button>
+</div>
+
+<button onclick="document.getElementById('admin-panel').classList.add('hidden')" class="mt-2 text-center w-full text-slate-400 hover:text-white">Close Panel</button>
+</div>
+</div>
+
+<!-- System Overlay (For Broadcasts) -->
+<div id="system-overlay" class="fixed inset-0 bg-black/90 z-[100] hidden flex items-center justify-center p-8">
+<div class="bg-white dark:bg-slate-800 rounded-2xl p-8 max-w-lg text-center shadow-2xl border-4 border-indigo-500">
+<h1 class="text-3xl font-bold mb-4 text-indigo-600 dark:text-indigo-400">System Message</h1>
+<p id="system-msg-text" class="text-lg mb-8 dark:text-white">...</p>
+<button onclick="document.getElementById('system-overlay').classList.add('hidden')" class="bg-indigo-600 text-white px-8 py-3 rounded-full font-bold text-lg hover:bg-indigo-700 transition-transform hover:scale-105">Got it</button>
+</div>
+</div>
+
+<!-- Reaction Picker -->
+<div id="reaction-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center">
+<div class="bg-white dark:bg-slate-800 rounded-xl p-4 w-64 shadow-2xl">
+<h3 class="text-sm font-bold mb-3 dark:text-white">React</h3>
+<div class="grid grid-cols-5 gap-2" id="emoji-grid">
+<!-- Standard -->
+<button onclick="window.submitReaction('❤️')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">❤️</button>
+<button onclick="window.submitReaction('😂')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">😂</button>
+<button onclick="window.submitReaction('😮')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">😮</button>
+<button onclick="window.submitReaction('😢')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">😢</button>
+<button onclick="window.submitReaction('😡')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">😡</button>
+<button onclick="window.submitReaction('👍')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">👍</button>
+<button onclick="window.submitReaction('🔥')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">🔥</button>
+<button onclick="window.submitReaction('🎉')" class="text-xl hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded">🎉</button>
+</div>
+<div id="custom-emojis-container" class="mt-3 pt-3 border-t dark:border-slate-700 hidden">
+<div class="text-xs text-gray-500 mb-2">Custom</div>
+<div class="grid grid-cols-5 gap-2" id="custom-emoji-grid"></div>
+</div>
+<button onclick="document.getElementById('reaction-modal').classList.add('hidden')" class="w-full mt-3 text-xs text-gray-500">Cancel</button>
+</div>
+</div>
+
+<!-- Forward Modal -->
+<div id="forward-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center">
+<div class="bg-white dark:bg-slate-800 rounded-xl p-4 w-72 shadow-2xl flex flex-col h-80">
+<h3 class="font-bold mb-2 dark:text-white">Forward to...</h3>
+<div id="forward-list" class="flex-1 overflow-y-auto space-y-1"></div>
+<button onclick="document.getElementById('forward-modal').classList.add('hidden')" class="mt-2 text-sm text-gray-500">Cancel</button>
+</div>
+</div>
+
+<!-- User Profile Viewer -->
+<div id="view-profile-modal" class="fixed inset-0 bg-black/70 z-50 hidden flex items-center justify-center p-4">
+<div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl h-[80vh] flex flex-col overflow-hidden relative">
+<button onclick="document.getElementById('view-profile-modal').classList.add('hidden')" class="absolute top-4 right-4 text-white bg-black/50 hover:bg-black/70 rounded-full w-8 h-8 flex items-center justify-center z-20"><i class="fa-solid fa-times"></i></button>
+
+<div class="flex-1 overflow-y-auto">
+<div class="h-32 bg-gradient-to-r from-indigo-500 to-purple-600 w-full relative"></div>
+<div class="px-8 relative">
+<div class="-mt-12 mb-4 relative z-10" id="vp-avatar-container"></div>
+<div class="mt-2">
+<h2 id="vp-name" class="text-2xl font-bold dark:text-white">Username</h2>
+<div class="text-sm text-gray-500 dark:text-gray-400" id="vp-joined">Joined recently</div>
+<div class="text-xs text-indigo-500 dark:text-indigo-400 mt-1 font-bold" id="vp-level">Level 1</div>
+</div>
+<h3 class="font-bold text-lg mb-4 mt-6 border-b dark:border-slate-700 pb-2 dark:text-gray-200">Posts & Projects</h3>
+<div id="vp-posts" class="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-8"></div>
+</div>
+</div>
+<div class="p-4 border-t dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 flex justify-end gap-2 z-10">
+<button id="vp-admin-edit-btn" class="hidden bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700">Edit Profile (Admin)</button>
+<button id="vp-friend-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700">Add Friend</button>
+</div>
+</div>
+</div>
+
+<!-- Creation Choice Modal -->
+<div id="creation-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center backdrop-blur-sm">
+<div class="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-8 w-full max-w-lg mx-4 text-center transform transition-all scale-100">
+<h2 class="text-2xl font-bold mb-6 dark:text-white">What do you want to create?</h2>
+<div class="grid grid-cols-3 gap-4">
+<button onclick="window.startCreation('text')" class="flex flex-col items-center p-4 border dark:border-slate-600 rounded-xl hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors">
+<div class="w-14 h-14 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full flex items-center justify-center text-2xl mb-2"><i class="fa-solid fa-align-left"></i></div>
+<span class="font-bold text-sm dark:text-white">Text</span>
+</button>
+<button onclick="window.startCreation('post')" class="flex flex-col items-center p-4 border dark:border-slate-600 rounded-xl hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors">
+<div class="w-14 h-14 bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400 rounded-full flex items-center justify-center text-2xl mb-2"><i class="fa-solid fa-photo-film"></i></div>
+<span class="font-bold text-sm dark:text-white">Media</span>
+</button>
+<button onclick="window.startCreation('game')" class="flex flex-col items-center p-4 border dark:border-slate-600 rounded-xl hover:bg-indigo-50 dark:hover:bg-slate-700 transition-colors">
+<div class="w-14 h-14 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center text-2xl mb-2"><i class="fa-solid fa-code"></i></div>
+<span class="font-bold text-sm dark:text-white">Game</span>
+</button>
+</div>
+<button onclick="document.getElementById('creation-modal').classList.add('hidden')" class="mt-6 text-gray-500 hover:text-gray-800 dark:hover:text-white">Cancel</button>
+</div>
+</div>
+
+<!-- Post Editor -->
+<div id="post-editor" class="fixed inset-0 bg-black/80 z-50 hidden flex items-center justify-center">
+<div class="bg-white dark:bg-slate-800 rounded-xl w-full max-w-md mx-4 overflow-hidden flex flex-col max-h-[90vh]">
+<div class="p-4 border-b dark:border-slate-700 flex justify-between items-center">
+<h3 class="font-bold text-lg dark:text-white" id="post-editor-title">New Post</h3>
+<button onclick="document.getElementById('post-editor').classList.add('hidden')" class="text-gray-500"><i class="fa-solid fa-times"></i></button>
+</div>
+<div class="p-6 overflow-y-auto">
+<input type="hidden" id="post-type" value="post">
+<div class="mb-4">
+<label class="block text-sm font-medium mb-1 dark:text-gray-300">Title</label>
+<input type="text" id="post-title" class="w-full bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white">
+</div>
+<div class="mb-4" id="post-image-section">
+<label class="block text-sm font-medium mb-1 dark:text-gray-300">Image URL</label>
+<input type="text" id="post-url" placeholder="https://..." class="w-full bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white mb-2">
+<p class="text-xs text-gray-500 text-center">- OR -</p>
+<input type="file" id="post-file" accept="image/*" class="mt-2 text-sm text-gray-500">
+</div>
+<div>
+<label class="block text-sm font-medium mb-1 dark:text-gray-300">Content / Description</label>
+<textarea id="post-desc" rows="5" class="w-full bg-gray-50 dark:bg-slate-700 border border-gray-200 dark:border-slate-600 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white"></textarea>
+</div>
+</div>
+<div class="p-4 border-t dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 flex justify-end gap-2">
+<button onclick="window.submitPost()" class="bg-indigo-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-indigo-700">Post</button>
+</div>
+</div>
+</div>
+
+<!-- Edit Message Modal -->
+<div id="edit-msg-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center">
+<div class="bg-white dark:bg-slate-800 rounded-xl p-6 w-full max-w-md mx-4">
+<h3 class="font-bold text-lg mb-4 dark:text-white">Edit Message</h3>
+<input type="hidden" id="edit-msg-id">
+<textarea id="edit-msg-input" class="w-full h-24 bg-gray-100 dark:bg-slate-700 border-none rounded-lg p-3 dark:text-white mb-4"></textarea>
+<div class="flex justify-end gap-2">
+<button onclick="document.getElementById('edit-msg-modal').classList.add('hidden')" class="px-4 py-2 text-gray-500">Cancel</button>
+<button onclick="window.confirmEditMsg()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Update</button>
+</div>
+</div>
+</div>
+
+<!-- Timeout Modal -->
+<div id="timeout-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center">
+<div class="bg-white dark:bg-slate-800 rounded-xl p-6 w-full max-w-sm mx-4">
+<h3 class="font-bold text-lg mb-4 dark:text-white">Timeout User</h3>
+<div class="grid grid-cols-3 gap-2 mb-4">
+<button onclick="window.confirmTimeout(1)" class="p-2 bg-gray-100 dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 rounded">1 Min</button>
+<button onclick="window.confirmTimeout(5)" class="p-2 bg-gray-100 dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 rounded">5 Min</button>
+<button onclick="window.confirmTimeout(60)" class="p-2 bg-gray-100 dark:bg-slate-700 hover:bg-indigo-50 dark:hover:bg-slate-600 rounded">1 Hour</button>
+</div>
+<button onclick="document.getElementById('timeout-modal').classList.add('hidden')" class="w-full text-center text-sm text-gray-500">Cancel</button>
+</div>
+</div>
+
+<!-- Code Editor (Existing but styled) -->
+<div id="code-editor-overlay" class="fixed inset-0 bg-slate-900 z-50 hidden flex flex-col">
+<div class="bg-slate-800 p-3 border-b border-slate-700 flex justify-between items-center">
+<input type="text" id="code-title" class="bg-transparent text-white font-bold text-lg outline-none placeholder-slate-500" placeholder="Untitled Game">
+<div class="flex gap-2">
+<button onclick="document.getElementById('code-editor-overlay').classList.add('hidden')" class="px-3 py-1.5 text-slate-400 hover:text-white">Exit</button>
+<button onclick="window.saveCodeProject()" class="bg-green-600 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-green-700"><i class="fa-solid fa-save mr-1"></i> Save</button>
+<button onclick="window.runCode()" class="bg-purple-600 text-white px-4 py-1.5 rounded text-sm font-medium hover:bg-purple-700"><i class="fa-solid fa-play mr-1"></i> Run</button>
+</div>
+</div>
+<textarea id="code-area" class="flex-1 p-4 code-editor outline-none resize-none text-sm" spellcheck="false"></textarea>
+</div>
+
+<!-- Content Viewer (Universal for Games & Posts) -->
+<div id="content-viewer" class="fixed inset-0 bg-black/90 z-50 hidden flex flex-col md:flex-row overflow-hidden">
+<!-- Main Content (Left) -->
+<div class="flex-1 flex flex-col relative bg-black">
+<div class="absolute top-0 left-0 right-0 p-4 bg-gradient-to-b from-black/70 to-transparent flex justify-between text-white z-10">
+<h3 id="viewer-title" class="font-bold text-lg drop-shadow-md">Title</h3>
+<div class="flex gap-2">
+<button id="btn-fullscreen" class="hidden w-8 h-8 bg-black/50 rounded-full flex items-center justify-center hover:bg-white/20"><i class="fa-solid fa-expand"></i></button>
+<button onclick="window.closeViewer()" class="w-8 h-8 bg-black/50 rounded-full flex items-center justify-center hover:bg-white/20"><i class="fa-solid fa-times"></i></button>
+</div>
+</div>
+
+<div id="viewer-stage" class="flex-1 flex items-center justify-center p-4">
+<!-- Injected via JS -->
+</div>
+
+<div class="p-4 bg-slate-900 text-white flex items-center gap-4 border-t border-slate-800">
+<button onclick="window.toggleLike()" class="flex items-center gap-2 hover:text-pink-500 transition-colors"><i id="viewer-heart" class="fa-regular fa-heart"></i> <span id="viewer-likes">0</span></button>
+<div class="flex items-center gap-2 text-sm text-gray-400">by <span id="viewer-author" class="text-white font-medium">Author</span></div>
+</div>
+</div>
+
+<!-- Comments Sidebar (Right) -->
+<div class="w-full md:w-96 bg-white dark:bg-slate-900 flex flex-col border-l border-slate-800 h-[40vh] md:h-full">
+<div class="p-3 border-b dark:border-slate-700 font-bold dark:text-white">Comments</div>
+<div id="comments-list" class="flex-1 overflow-y-auto p-4 space-y-4"></div>
+<form id="comment-form" class="p-3 border-t dark:border-slate-700 flex gap-2">
+<input type="text" id="comment-input" class="flex-1 bg-gray-100 dark:bg-slate-800 border-none rounded-full px-4 text-sm dark:text-white focus:ring-1 focus:ring-indigo-500 outline-none" placeholder="Add a comment...">
+<button type="submit" class="text-indigo-600 font-bold px-2">Post</button>
+</form>
+</div>
+</div>
+
+<!-- Profile Modal (Settings & Admin) -->
+<div id="profile-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center">
+<div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl p-6 w-full max-w-sm mx-4 text-center max-h-[90vh] overflow-y-auto">
+<h3 class="text-xl font-bold mb-4 dark:text-white" id="profile-modal-title">Edit Profile</h3>
+
+<!-- Avatar Input -->
+<div class="relative w-24 h-24 mx-auto mb-4 group cursor-pointer" onclick="document.getElementById('avatar-upload').click()">
+<img id="profile-preview" src="" class="w-full h-full rounded-full object-cover border-4 border-gray-100 dark:border-slate-700 hidden">
+<div id="profile-preview-placeholder" class="w-full h-full rounded-full bg-indigo-100 dark:bg-slate-700 flex items-center justify-center text-3xl text-indigo-500">
+<i class="fa-solid fa-camera"></i>
+</div>
+<div class="absolute inset-0 bg-black/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-bold">Change</div>
+</div>
+<!-- Separation of Concerns: File Input vs URL Input -->
+<input type="file" id="avatar-upload" accept="image/*" class="hidden">
+<div class="mb-4 text-left">
+    <label class="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Or paste image URL:</label>
+    <input type="text" id="avatar-url-input" placeholder="https://..." class="w-full text-xs p-2 bg-gray-50 dark:bg-slate-900 border dark:border-slate-600 rounded dark:text-white">
+</div>
+
+<div class="mb-4 text-left">
+    <label class="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Username</label>
+    <input type="text" id="username-input" class="w-full bg-gray-100 dark:bg-slate-700 border dark:border-slate-600 rounded-lg px-4 py-2 outline-none dark:text-white" placeholder="Username">
+</div>
+
+<div class="flex items-center justify-between mb-6 px-2">
+<span class="text-sm dark:text-gray-300">Dark Mode</span>
+<button onclick="window.toggleDarkMode()" id="dm-toggle" class="w-10 h-6 bg-gray-300 rounded-full relative transition-colors"><div class="w-4 h-4 bg-white rounded-full absolute top-1 left-1 transition-transform"></div></button>
+</div>
+
+<!-- Admin Area (Hidden unless admin) -->
+<div id="admin-settings-area" class="hidden border-t dark:border-slate-700 pt-4 mt-4 text-left">
+<h4 class="font-bold text-sm text-red-500 mb-2">Admin Tools</h4>
+<div class="mb-2">
+<label class="text-xs dark:text-gray-400">Add Custom Emoji</label>
+<div class="flex gap-2 mt-1">
+<input type="file" id="admin-emoji-file" accept="image/*" class="w-full text-xs">
+<button onclick="window.uploadCustomEmoji()" class="bg-indigo-600 text-white px-2 rounded text-xs">Upload</button>
+</div>
+</div>
+</div>
+
+<div class="flex gap-2 mt-6">
+<button onclick="document.getElementById('profile-modal').classList.add('hidden')" class="flex-1 py-2 text-gray-500 dark:text-gray-400">Cancel</button>
+<button id="save-profile-btn" class="flex-1 py-2 bg-indigo-600 text-white rounded-lg font-medium">Save</button>
+</div>
+</div>
+</div>
+
+<!-- Friends Modal -->
+<div id="friends-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center">
+<div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md mx-4 h-[500px] flex flex-col overflow-hidden">
+<div class="p-4 border-b dark:border-slate-700 flex justify-between items-center bg-gray-50 dark:bg-slate-700">
+<h3 class="font-bold dark:text-white">Friends</h3>
+<button onclick="document.getElementById('friends-modal').classList.add('hidden')"><i class="fa-solid fa-times text-gray-500"></i></button>
+</div>
+<div class="flex border-b dark:border-slate-700">
+<button onclick="window.switchFriendTab('list')" id="ftab-list" class="flex-1 py-3 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600">My Friends</button>
+<button onclick="window.switchFriendTab('requests')" id="ftab-requests" class="flex-1 py-3 text-sm text-gray-500 relative">Requests <span id="req-badge" class="hidden absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full"></span></button>
+<button onclick="window.switchFriendTab('add')" id="ftab-add" class="flex-1 py-3 text-sm text-gray-500">Add Friend</button>
+</div>
+<div id="friend-list-container" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
+<div id="requests-container" class="hidden flex-1 overflow-y-auto p-4 space-y-2"></div>
+<div id="add-friend-container" class="hidden flex-1 p-4">
+<div class="flex gap-2 mb-4">
+<input type="text" id="add-friend-input" class="flex-1 border dark:border-slate-600 dark:bg-slate-700 rounded-lg px-3 py-2 outline-none dark:text-white" placeholder="Friend's Username">
+<button onclick="window.sendReq()" class="bg-indigo-600 text-white px-4 rounded-lg">Add</button>
+</div>
+<div id="pending-list" class="space-y-2 text-sm text-gray-500 text-center">Search for a username to add them.</div>
+</div>
+</div>
+</div>
+
+<!-- Logic -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, deleteDoc, updateDoc, query, where, getDocs, getDoc, orderBy, limit, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+// Firebase Config
+const firebaseConfig = {
+    apiKey: "AIzaSyDxzQry2DI1V54VGsmjD39aGnDGg1qkY4g",
+    authDomain: "idk-gng.firebaseapp.com",
+    projectId: "idk-gng",
+    storageBucket: "idkgng.firebasestorage.app",
+    messagingSenderId: "702219814778",
+    appId: "1:702219814778:web:a167ac3838a31a740cb8c3"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'fire-social-v3';
+// REMOVED Custom Token logic for custom firebase config
+const initialToken = null; 
+
+// Globals
+let currentUser = null;
+let myProfile = { name: 'Guest', photoURL: '' };
+let deviceFingerprint = null;
+let currentItem = null;
+let currentChatMode = 'global';
+let currentDmId = null;
+let contextTarget = null;
+let chatUnsubscribe = null;
+let editingItemId = null;
+let editingProfileUid = null;
+let replyingTo = null;
+let pendingAvatarBase64 = null; // Staging for avatar upload
+let nukeTimestamp = 0; // Timestamp for "Clear All" signal
+let lastCommentTime = 0; // For comment cooldown
+let lastPresenceUpdate = 0;
+const appStartTime = Date.now();
+const FIRE_BOT_UID = 'fire_bot_official';
+
+
+// Music Engine (Custom Procedural Loop)
+const MusicEngine = {
+ctx: null,
+isPlaying: true, // Defaulting to true, will start on interaction
+nextNoteTime: 0,
+noteIndex: 0,
+// Pentatonic scale frequencies
+scale: [261.63, 293.66, 329.63, 392.00, 440.00, 523.25],
+
+init() {
+const AudioContext = window.AudioContext || window.webkitAudioContext;
+this.ctx = new AudioContext();
+},
+
+playNote(freq, time, duration = 0.5, type = 'sine') {
+const osc = this.ctx.createOscillator();
+const gain = this.ctx.createGain();
+
+osc.type = type;
+osc.frequency.value = freq;
+
+// Envelope
+gain.gain.setValueAtTime(0.05, time);
+gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
+
+osc.connect(gain);
+gain.connect(this.ctx.destination);
+
+osc.start(time);
+osc.stop(time + duration);
+},
+
+scheduler() {
+if(!this.ctx) return;
+while (this.nextNoteTime < this.ctx.currentTime + 0.1) {
+// Melody (Random walk)
+const note = this.scale[Math.floor(Math.random() * this.scale.length)];
+this.playNote(note, this.nextNoteTime, 0.4, 'sine');
+
+// Bass (Root every 4 beats)
+if (this.noteIndex % 4 === 0) {
+this.playNote(130.81, this.nextNoteTime, 1.0, 'triangle'); // C3
+}
+
+const secondsPerBeat = 60.0 / 100.0; // 100 BPM
+this.nextNoteTime += secondsPerBeat;
+this.noteIndex++;
+}
+if (this.isPlaying) {
+requestAnimationFrame(this.scheduler.bind(this));
+}
+},
+
+start() {
+if (!this.ctx) this.init();
+if (this.ctx.state === 'suspended') {
+    this.ctx.resume();
+}
+this.nextNoteTime = this.ctx.currentTime;
+this.scheduler();
+}
+};
+
+// Start music on first interaction
+document.addEventListener('click', () => {
+    if(MusicEngine.isPlaying && (!MusicEngine.ctx || MusicEngine.ctx.state === 'suspended')) {
+        MusicEngine.start();
+    }
+    // Update presence on user activity
+    updatePresence();
+}, {once:true});
+
+// Continuous presence update on click
+document.addEventListener('click', () => updatePresence());
+document.addEventListener('keydown', () => updatePresence());
+
+async function updatePresence() {
+    if (!currentUser) return;
+    const now = Date.now();
+    // Only update max once per minute
+    if (now - lastPresenceUpdate > 60000) {
+        lastPresenceUpdate = now;
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', currentUser.uid), {
+            lastSeen: now
+        }).catch(e => console.log("Presence update failed", e));
+    }
+}
+
+
+// --- HELPER: AVATAR GENERATOR ---
+window.getAvatarHTML = function(photoURL, name, classes) {
+if (photoURL) {
+return `<img src="${photoURL}" class="${classes} rounded-full object-cover border border-gray-300 bg-gray-200">`;
+} else {
+const initials = (name || '??').slice(0, 2).toUpperCase();
+return `<div class="${classes} rounded-full bg-black text-white flex items-center justify-center font-bold border border-gray-300 select-none text-xs tracking-wider">${initials}</div>`;
+}
+};
+
+// --- BAN EVASION PROTECTION ---
+async function checkBanStatus() {
+try {
+const fpPromise = FingerprintJS.load();
+const fp = await fpPromise;
+const result = await fp.get();
+deviceFingerprint = result.visitorId;
+
+const banRef = doc(db, 'artifacts', appId, 'public', 'data', 'bans', deviceFingerprint);
+const banSnap = await getDoc(banRef);
+
+if (banSnap.exists()) {
+document.body.innerHTML = `<div class="h-screen flex items-center justify-center bg-red-900 text-white flex-col"><h1 class="text-4xl font-bold mb-4">ACCESS DENIED</h1></div>`;
+throw new Error("Banned Device");
+}
+} catch(e) {
+console.error("Fingerprint check failed or banned", e);
+if(e.message === "Banned Device") throw e;
+}
+}
+
+// --- CORE FUNCTIONS ---
+
+function loadFeed() {
+const ref = collection(db, 'artifacts', appId, 'public', 'data', 'items');
+const q = query(ref, orderBy('createdAt', 'desc'), limit(50));
+onSnapshot(q, (snap) => {
+const items = [];
+snap.forEach(d => items.push({id: d.id, ...d.data()}));
+renderFeed(items);
+});
+}
+
+function renderFeed(items) {
+const discover = document.getElementById('feed-discover');
+const mine = document.getElementById('feed-mine');
+const createCard = mine.querySelector('div[onclick="window.openCreationModal()"]');
+mine.innerHTML = ''; mine.appendChild(createCard);
+discover.innerHTML = '';
+
+items.forEach(item => {
+const card = createCardEl(item);
+discover.appendChild(card);
+if(item.authorId === currentUser.uid) {
+mine.appendChild(createCardEl(item, true));
+}
+});
+}
+
+function createCardEl(item, isMine=false) {
+const div = document.createElement('div');
+div.className = "bg-white dark:bg-slate-800 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col border border-gray-100 dark:border-slate-700";
+div.oncontextmenu = (e) => window.handleItemContextMenu(e, item.id, item.type, item.authorId);
+
+let preview = '';
+if(item.type === 'game') {
+preview = `<div class="bg-slate-900 h-48 flex items-center justify-center relative group"><i class="fa-solid fa-gamepad text-5xl text-slate-700 group-hover:text-indigo-500 transition-colors"></i><span class="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">GAME</span></div>`;
+} else if (item.type === 'text') {
+preview = `<div class="h-48 bg-yellow-50 dark:bg-slate-700 p-6 flex items-center justify-center text-center overflow-hidden"><p class="font-serif text-lg text-gray-800 dark:text-gray-200 line-clamp-5">${item.desc}</p></div>`;
+} else {
+if(item.mediaURL) {
+preview = `<div class="h-48 bg-gray-100 dark:bg-slate-700 overflow-hidden relative"><img src="${item.mediaURL}" class="w-full h-full object-cover"><span class="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-1 rounded">POST</span></div>`;
+} else {
+preview = `<div class="h-48 bg-gradient-to-br from-purple-500 to-indigo-600 p-4 flex items-center justify-center text-white text-center font-bold text-lg">${item.title}</div>`;
+}
+}
+
+const avatarHTML = window.getAvatarHTML(item.authorPhoto, item.authorName, 'w-5 h-5');
+div.innerHTML = `<div onclick="window.viewItem('${item.id}')" class="cursor-pointer">${preview}<div class="p-4"><h3 class="font-bold text-lg text-gray-800 dark:text-white truncate">${item.title}</h3><div class="flex items-center gap-2 mt-2 text-sm text-gray-500 dark:text-gray-400">${avatarHTML}<span>${item.authorName}</span></div></div></div><div class="px-4 pb-4 mt-auto flex justify-between items-center text-sm text-gray-500 border-t border-gray-50 dark:border-slate-700 pt-3"><div class="flex gap-4"><span><i class="fa-solid fa-heart text-pink-500"></i> ${item.likes ? item.likes.length : 0}</span><span><i class="fa-solid fa-comment text-blue-500"></i> ${item.commentsCount || 0}</span></div>${isMine ? `<button onclick="window.deleteItem('${item.id}')" class="text-red-500 hover:text-red-700"><i class="fa-solid fa-trash"></i></button>` : ''}</div>`;
+return div;
+}
+
+function initChat(mode, dmId) {
+currentChatMode = mode;
+if(chatUnsubscribe) chatUnsubscribe();
+
+document.getElementById('messages-list').innerHTML = '';
+document.getElementById('loading-spinner').classList.remove('hidden');
+
+let ref;
+if (mode === 'global') {
+ref = collection(db, 'artifacts', appId, 'public', 'data', 'chat');
+} else {
+ref = collection(db, 'artifacts', appId, 'public', 'data', 'dms', dmId, 'messages');
+}
+
+const q = query(ref, orderBy('createdAt', 'desc'), limit(50));
+chatUnsubscribe = onSnapshot(q, (snap) => {
+const msgs = [];
+snap.forEach(d => msgs.push({id: d.id, ...d.data()}));
+msgs.reverse();
+document.getElementById('loading-spinner').classList.add('hidden');
+
+const l = document.getElementById('messages-list');
+l.innerHTML = '';
+
+msgs.forEach(m => {
+// Nuke Logic: If message is older than the last "Nuke" signal, skip it
+if (nukeTimestamp && m.createdAt < nukeTimestamp) return;
+
+const isMe = m.uid === currentUser.uid;
+const div = document.createElement('div');
+div.className = `flex gap-2 message-enter ${isMe ? 'flex-row-reverse' : ''}`;
+
+let highlightClass = '';
+// Ping highlighting Logic
+if (m.text.includes(`@${myProfile.name}`)) {
+    highlightClass = 'mention-highlight';
+} else if (m.replyTo && m.replyTo.uid === currentUser.uid && (Date.now() - m.createdAt < 5000)) {
+    highlightClass = 'highlight-reply';
+}
+
+// Special styling for Fire Bot
+const isBot = m.uid === FIRE_BOT_UID;
+let avatarHTML;
+if (isBot) {
+    avatarHTML = `<div class="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white border-2 border-yellow-400 shadow-lg cursor-pointer"><i class="fa-solid fa-fire"></i></div>`;
+} else {
+    avatarHTML = window.getAvatarHTML(m.photo, m.name, 'w-8 h-8 cursor-pointer hover:opacity-80');
+}
+
+const avatarWrapper = document.createElement('div');
+avatarWrapper.innerHTML = avatarHTML;
+if(!isBot) avatarWrapper.onclick = () => window.viewUserProfile(m.uid);
+div.appendChild(avatarWrapper);
+
+let replyBlock = '';
+if(m.replyTo) {
+replyBlock = `<div class="text-[10px] bg-black/10 dark:bg-white/10 p-1 rounded mb-1 border-l-2 border-indigo-500 opacity-70 truncate max-w-[200px]">Replying to <b>${m.replyTo.name}</b>: ${m.replyTo.text}</div>`;
+}
+
+let reactionsBlock = '';
+if (m.reactions && Object.keys(m.reactions).length > 0) {
+reactionsBlock = `<div class="flex gap-1 flex-wrap mt-1 justify-end">`;
+for (const [uid, r] of Object.entries(m.reactions)) {
+const isCustom = r.length > 10;
+const content = isCustom ? `<img src="${r}" class="w-3 h-3">` : r;
+reactionsBlock += `<span class="reaction-pill">${content}</span>`;
+}
+reactionsBlock += `</div>`;
+}
+
+// Highlight pings in text
+let displayText = m.text;
+if(m.type !== 'image') {
+    // Basic XSS protection before highlighting (though innerText handles most)
+    displayText = displayText.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // Add bold to mentions
+    displayText = displayText.replace(/@(\w+)/g, '<span class="font-bold text-indigo-600 dark:text-indigo-400">@$1</span>');
+}
+
+// Timestamp
+const time = new Date(m.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+const contentDiv = document.createElement('div');
+contentDiv.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%] ${highlightClass}`;
+const bgClass = isBot ? "bg-slate-800 text-white border border-red-500 shadow-red-500/20" : (isMe ? "bg-indigo-600 text-white rounded-tr-sm" : "bg-gray-200 dark:bg-slate-700 dark:text-gray-200 rounded-tl-sm");
+
+// COMPACTED HTML STRING TO FIX HEIGHT ISSUE
+contentDiv.innerHTML = `<span class="text-[10px] text-gray-500 mb-0.5 px-1">${m.name} <span class="opacity-50 ml-1">• ${time}</span></span><div oncontextmenu="window.handleContextMenu(event, '${m.uid}', '${m.id}', '${m.text.replace(/'/g, "\\'")}', '${m.name}')" class="${bgClass} message-bubble px-3 py-2 rounded-xl text-sm shadow-sm cursor-context-menu select-none relative group">${replyBlock}${m.type === 'image' ? `<img src="${m.text}" class="max-w-[150px] rounded-lg">` : displayText}${reactionsBlock}</div>`;
+div.appendChild(contentDiv);
+l.appendChild(div);
+});
+l.parentElement.scrollTop = l.parentElement.scrollHeight;
+});
+}
+
+function initSocial() {
+onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'friendships'), (snap) => {
+const list = document.getElementById('friend-list-container'); list.innerHTML = '';
+
+// --- FIRE BOT (Permanently Friend) ---
+const botEl = document.createElement('div');
+botEl.className = "flex justify-between items-center bg-red-50 dark:bg-slate-800 p-3 rounded-lg border border-red-200 dark:border-red-900 mb-2";
+botEl.innerHTML = `<div class="flex items-center gap-3"><div class="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white border-2 border-yellow-400"><i class="fa-solid fa-fire"></i></div><span class="font-bold text-red-600 dark:text-red-400">Fire Bot</span> <span class="bg-red-100 text-red-800 text-[10px] font-bold px-1.5 rounded dark:bg-red-900 dark:text-white">BOT</span></div><button onclick="window.startDm('${FIRE_BOT_UID}')" class="text-xs bg-red-100 text-red-600 px-3 py-1 rounded hover:bg-red-200"><i class="fa-solid fa-message"></i></button>`;
+list.appendChild(botEl);
+
+snap.forEach(d => {
+const data = d.data();
+if(data.users && data.users.includes(currentUser.uid)) {
+const otherUid = data.users.find(u => u !== currentUser.uid);
+if(otherUid === FIRE_BOT_UID) return; // Skip if somehow in DB to avoid dupe
+getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', otherUid)).then(pSnap => {
+if(pSnap.exists()) {
+const p = pSnap.data();
+const el = document.createElement('div');
+el.className = "flex justify-between items-center bg-gray-50 dark:bg-slate-700 p-3 rounded-lg";
+el.innerHTML = `<div class="flex items-center gap-3">${window.getAvatarHTML(p.photoURL, p.name, 'w-8 h-8')}<span class="font-medium dark:text-white">${p.name}</span></div><button onclick="window.startDm('${otherUid}')" class="text-xs bg-indigo-100 text-indigo-600 px-3 py-1 rounded hover:bg-indigo-200"><i class="fa-solid fa-message"></i></button>`;
+list.appendChild(el);
+}
+});
+}
+});
+});
+const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'friend_requests'), where('to', '==', currentUser.uid));
+onSnapshot(q, (snap) => {
+const list = document.getElementById('requests-container'); const badge = document.getElementById('req-badge'); list.innerHTML = '';
+if(snap.empty) { badge.classList.add('hidden'); list.innerHTML = '<div class="text-xs text-gray-500 text-center mt-4">No pending requests.</div>'; }
+else { 
+    badge.classList.remove('hidden'); 
+    badge.classList.add('bg-red-500'); // Standard for requests
+    snap.forEach(d => { const r = d.data(); const el = document.createElement('div'); el.className = "flex justify-between items-center bg-gray-50 dark:bg-slate-700 p-3 rounded-lg mb-2"; el.innerHTML = `<div class="text-sm dark:text-white"><span class="font-bold">${r.fromName}</span> wants to be friends.</div><div class="flex gap-2"><button onclick="window.acceptReq('${d.id}', '${r.from}')" class="text-green-600 hover:bg-green-100 p-2 rounded"><i class="fa-solid fa-check"></i></button><button onclick="window.declineReq('${d.id}')" class="text-red-600 hover:bg-red-100 p-2 rounded"><i class="fa-solid fa-times"></i></button></div>`; list.appendChild(el); }); }
+});
+}
+
+function loadCustomEmojis() {
+onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'custom_emojis'), (snap) => {
+const grid = document.getElementById('custom-emoji-grid');
+const container = document.getElementById('custom-emojis-container');
+if(!snap.empty) container.classList.remove('hidden');
+grid.innerHTML = '';
+snap.forEach(d => {
+const url = d.data().url;
+const btn = document.createElement('button');
+btn.className = "hover:bg-gray-100 dark:hover:bg-slate-700 p-1 rounded";
+btn.innerHTML = `<img src="${url}" class="w-6 h-6 object-contain mx-auto">`;
+btn.onclick = () => window.submitReaction(url, true);
+grid.appendChild(btn);
+});
+});
+}
+
+function updateHeader() {
+const container = document.getElementById('header-avatar-container');
+container.innerHTML = window.getAvatarHTML(myProfile.photoURL, myProfile.name, 'w-full h-full');
+if (myProfile.photoURL) document.getElementById('profile-preview').src = myProfile.photoURL;
+document.getElementById('username-input').value = myProfile.name;
+}
+
+// --- Init Function ---
+const init = async () => {
+    try {
+        if (initialToken) {
+            await signInWithCustomToken(auth, initialToken);
+        } else {
+            await signInAnonymously(auth);
+        }
+    } catch (e) {
+        console.error("Authentication failed:", e);
+        if (e.code === 'auth/admin-restricted-operation' || e.code === 'auth/operation-not-allowed') {
+            document.body.innerHTML = `<div class="h-screen flex items-center justify-center bg-gray-900 text-white flex-col p-4 text-center">
+                <h1 class="text-3xl font-bold mb-4 text-red-500">Configuration Error</h1>
+                <p class="mb-4">Anonymous Authentication is disabled in your Firebase Project.</p>
+                <ol class="text-left bg-gray-800 p-6 rounded-lg list-decimal list-inside space-y-2">
+                    <li>Go to <a href="https://console.firebase.google.com/" target="_blank" class="text-blue-400 underline">Firebase Console</a>.</li>
+                    <li>Select your project <b>(idk-gng)</b>.</li>
+                    <li>Go to <b>Authentication</b> > <b>Sign-in method</b>.</li>
+                    <li>Enable <b>Anonymous</b> provider.</li>
+                    <li>Refresh this page.</li>
+                </ol>
+            </div>`;
+            return;
+        } else {
+            alert("Auth Error: " + e.message);
+        }
+    }
+
+    await checkBanStatus();
+
+    onAuthStateChanged(auth, async (user) => {
+        if(user) {
+            currentUser = user;
+            const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'profiles', user.uid);
+            onSnapshot(userRef, (snap) => {
+                if(snap.exists()) {
+                    myProfile = snap.data();
+                    if(myProfile.isBanned) {
+                        // Show Access Denied Screen instead of infinite reload loop
+                        document.body.innerHTML = `<div class="h-screen flex items-center justify-center bg-red-900 text-white flex-col"><h1 class="text-4xl font-bold mb-4">ACCESS DENIED</h1><p>You have been banned from this application.</p></div>`;
+                        return;
+                    }
+                    updateHeader();
+                    if(myProfile.name === 'CKAD') document.getElementById('admin-settings-area').classList.remove('hidden');
+                } else {
+                    setDoc(userRef, { name: 'User '+user.uid.slice(0,4), photoURL: '', deviceId: deviceFingerprint, joined: Date.now(), xp: 0 });
+                }
+            });
+
+            loadFeed();
+            initChat('global');
+            initSocial();
+            loadCustomEmojis();
+            initSystemListener();
+            initNotifications();
+        }
+    });
+};
+
+// --- Notifications ---
+function initNotifications() {
+// Listen for DM signals
+const ref = collection(db, 'artifacts', appId, 'public', 'data', 'notifications');
+const q = query(ref, where('to', '==', currentUser.uid));
+onSnapshot(q, (snap) => {
+    snap.docChanges().forEach(async (change) => {
+        if(change.type === 'added') {
+            const n = change.doc.data();
+
+            // Show toast only if it's a new message relative to session start
+            if (n.createdAt > appStartTime) {
+                showToast(`Message from ${n.fromName}`);
+                
+                // --- Badge Logic ---
+                const badge = document.getElementById('friend-badge');
+                badge.classList.remove('hidden');
+                
+                // If it's a DM, check if it's a ping or normal
+                if (n.type === 'dm') {
+                    if (n.isPing) {
+                        badge.classList.remove('bg-orange-500', 'bg-red-500');
+                        badge.classList.add('bg-red-500'); // Red for Ping
+                    } else {
+                        // Only set orange if it's not already red (priority)
+                        if (!badge.classList.contains('bg-red-500')) {
+                            badge.classList.remove('bg-orange-500');
+                            badge.classList.add('bg-orange-500');
+                        }
+                    }
+                }
+            }
+
+            // Clean up signal to prevent clutter
+            await deleteDoc(change.doc.ref);
+        }
+    });
+});
+}
+
+function showToast(msg) {
+const t = document.getElementById('notification-toast');
+document.getElementById('toast-message').textContent = msg;
+t.classList.add('show');
+setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// --- Admin System ---
+document.addEventListener('keydown', (e) => {
+if (e.ctrlKey && e.key === '9') {
+if (myProfile.name === 'CKAD') {
+document.getElementById('admin-panel').classList.remove('hidden');
+} else {
+alert("Access Denied: Admin only.");
+}
+}
+});
+
+window.adminBroadcast = async () => {
+const txt = document.getElementById('admin-broadcast-text').value;
+if(!txt) return;
+await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'system_signals'), {
+type: 'broadcast',
+text: txt,
+createdAt: Date.now()
+});
+alert("Broadcast sent.");
+document.getElementById('admin-panel').classList.add('hidden');
+document.getElementById('admin-broadcast-text').value = '';
+};
+
+window.adminForceRefresh = async () => {
+if(!confirm("Are you sure? This will reload the page for EVERYONE currently online.")) return;
+await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'system_signals'), {
+type: 'refresh',
+createdAt: Date.now()
+});
+alert("Refresh signal sent.");
+document.getElementById('admin-panel').classList.add('hidden');
+};
+
+
+function initSystemListener() {
+const ref = collection(db, 'artifacts', appId, 'public', 'data', 'system_signals');
+onSnapshot(ref, (snap) => {
+snap.docChanges().forEach((change) => {
+if (change.type === "added") {
+const data = change.doc.data();
+// Only react to new signals generated after this session started
+if (data.createdAt > appStartTime) {
+if (data.type === 'refresh') {
+location.reload();
+} else if (data.type === 'broadcast') {
+document.getElementById('system-msg-text').textContent = data.text;
+document.getElementById('system-overlay').classList.remove('hidden');
+}
+}
+}
+});
+});
+}
+
+// --- UI Functions ---
+window.toggleView = () => {
+const content = document.getElementById('view-content');
+const title = document.getElementById('header-title');
+if (content.classList.contains('translate-x-full')) {
+content.classList.remove('translate-x-full');
+title.textContent = "Discover";
+document.getElementById('view-toggle-btn').innerHTML = '<i class="fa-solid fa-comment-dots"></i>';
+} else {
+content.classList.add('translate-x-full');
+title.textContent = "Global Chat";
+document.getElementById('view-toggle-btn').innerHTML = '<i class="fa-solid fa-gamepad"></i>';
+}
+};
+document.getElementById('view-toggle-btn').addEventListener('click', window.toggleView);
+
+window.uploadCustomEmoji = () => {
+const f = document.getElementById('admin-emoji-file').files[0];
+if(!f) return;
+const r = new FileReader();
+r.onload = async (e) => {
+await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'custom_emojis'), { url: e.target.result, createdAt: Date.now() });
+alert("Uploaded!"); loadCustomEmojis();
+};
+r.readAsDataURL(f);
+};
+
+window.handleContextMenu = (e, uid, msgId, text, name) => {
+e.preventDefault();
+contextTarget = { uid, msgId, text, name };
+const menu = document.getElementById('context-menu');
+const isMe = uid === currentUser.uid;
+const isAdmin = myProfile.name === 'CKAD';
+
+let html = `<div onclick="window.ctxAction('react')" class="context-menu-item text-gray-700 dark:text-gray-200"><i class="fa-solid fa-face-smile mr-2"></i>React</div>`;
+html += `<div onclick="window.ctxAction('reply')" class="context-menu-item text-gray-700 dark:text-gray-200"><i class="fa-solid fa-reply mr-2"></i>Reply</div>`;
+html += `<div onclick="window.ctxAction('forward')" class="context-menu-item text-gray-700 dark:text-gray-200"><i class="fa-solid fa-share mr-2"></i>Forward</div>`;
+
+if(isMe) {
+html += `<div onclick="window.ctxAction('edit')" class="context-menu-item text-gray-700 dark:text-gray-200"><i class="fa-solid fa-pen mr-2"></i>Edit</div>`;
+html += `<div onclick="window.ctxAction('delete')" class="context-menu-item text-red-600"><i class="fa-solid fa-trash mr-2"></i>Delete</div>`;
+} else {
+html += `<div onclick="window.ctxAction('friend')" class="context-menu-item text-indigo-600 dark:text-indigo-400"><i class="fa-solid fa-user-plus mr-2"></i>Add Friend</div>`;
+html += `<div onclick="window.viewUserProfile('${uid}')" class="context-menu-item text-gray-700 dark:text-gray-200"><i class="fa-solid fa-user mr-2"></i>View Profile</div>`;
+html += `<div onclick="window.startDm('${uid}')" class="context-menu-item text-green-600 dark:text-green-400"><i class="fa-solid fa-message mr-2"></i>Message</div>`;
+}
+
+if(isAdmin) {
+html += `<div class="border-t border-gray-200 dark:border-slate-700 my-1"></div>`;
+html += `<div class="px-2 text-[10px] text-gray-400 font-bold uppercase tracking-wider">Admin Tools</div>`;
+html += `<div onclick="window.ctxAction('delete')" class="context-menu-item text-red-600"><i class="fa-solid fa-trash mr-2"></i>Force Delete</div>`;
+html += `<div onclick="window.ctxAction('timeout')" class="context-menu-item text-orange-600 font-bold"><i class="fa-solid fa-clock mr-2"></i>Timeout User</div>`;
+html += `<div onclick="window.ctxAction('ban')" class="context-menu-item text-red-800 font-bold"><i class="fa-solid fa-gavel mr-2"></i>Ban User</div>`;
+}
+
+menu.innerHTML = html;
+let x = e.clientX; let y = e.clientY;
+if(x + 200 > window.innerWidth) x -= 200; if(y + 200 > window.innerHeight) y -= 200;
+menu.style.left = `${x}px`; menu.style.top = `${y}px`;
+menu.classList.remove('hidden');
+};
+
+window.hideContextMenu = () => { document.getElementById('context-menu').classList.add('hidden'); };
+
+window.ctxAction = async (action) => {
+if(!contextTarget) return;
+const t = contextTarget;
+if(action === 'react') { document.getElementById('reaction-modal').classList.remove('hidden'); window.activeReactionMsgId = t.msgId; }
+if(action === 'reply') { replyingTo = { id: t.msgId, name: t.name, text: t.text, uid: t.uid }; document.getElementById('reply-banner').classList.remove('hidden'); document.getElementById('reply-target-name').textContent = t.name; document.getElementById('message-input').focus(); }
+if(action === 'forward') {
+document.getElementById('forward-modal').classList.remove('hidden');
+const list = document.getElementById('forward-list'); list.innerHTML = 'Loading...';
+const snap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'friendships'));
+list.innerHTML = '';
+snap.forEach(d => {
+const data = d.data();
+if(data.users && data.users.includes(currentUser.uid)) {
+const otherUid = data.users.find(u => u !== currentUser.uid);
+getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', otherUid)).then(pSnap => {
+if(pSnap.exists()) {
+const p = pSnap.data();
+const btn = document.createElement('button');
+btn.className = "w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded text-sm dark:text-gray-200";
+btn.textContent = p.name;
+btn.onclick = () => window.forwardMessage(otherUid, t.text);
+list.appendChild(btn);
+}
+});
+}
+});
+}
+if(action === 'friend') { window.sendReq(null, t.uid); alert("Friend request sent!"); }
+if(action === 'delete') { const delPath = currentChatMode === 'global' ? doc(db, 'artifacts', appId, 'public', 'data', 'chat', t.msgId) : doc(db, 'artifacts', appId, 'public', 'data', 'dms', currentDmId, 'messages', t.msgId); await deleteDoc(delPath); }
+if(action === 'edit') { document.getElementById('edit-msg-id').value = t.msgId; document.getElementById('edit-msg-input').value = t.text; document.getElementById('edit-msg-modal').classList.remove('hidden'); }
+if(action === 'ban') { if(confirm("BAN USER PERMANENTLY?")) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', t.uid), { isBanned: true }, {merge: true}); alert("User banned."); } }
+if(action === 'timeout') { window.targetTimeoutUid = t.uid; document.getElementById('timeout-modal').classList.remove('hidden'); }
+if(action === 'delete-post') { if(confirm("Delete this post?")) { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', t.itemId)); } }
+if(action === 'edit-game') { const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', t.itemId)); if(snap.exists()) { const data = snap.data(); editingItemId = t.itemId; document.getElementById('code-editor-overlay').classList.remove('hidden'); document.getElementById('code-title').value = data.title; document.getElementById('code-area').value = data.code; } }
+};
+
+window.confirmTimeout = async (mins) => {
+if(!window.targetTimeoutUid) return;
+const until = Date.now() + (mins * 60000);
+await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', window.targetTimeoutUid), { timeoutUntil: until }, {merge: true});
+document.getElementById('timeout-modal').classList.add('hidden');
+alert(`User timed out for ${mins} minutes.`);
+};
+
+window.submitReaction = async (emoji, isCustom=false) => {
+const msgId = window.activeReactionMsgId; if(!msgId) return;
+const docPath = currentChatMode === 'global' ? doc(db, 'artifacts', appId, 'public', 'data', 'chat', msgId) : doc(db, 'artifacts', appId, 'public', 'data', 'dms', currentDmId, 'messages', msgId);
+const snap = await getDoc(docPath);
+if(snap.exists()) { const data = snap.data(); const reactions = data.reactions || {}; reactions[currentUser.uid] = emoji; await updateDoc(docPath, { reactions }); }
+document.getElementById('reaction-modal').classList.add('hidden');
+};
+
+window.cancelReply = () => { replyingTo = null; document.getElementById('reply-banner').classList.add('hidden'); };
+
+window.forwardMessage = async (targetUid, text) => {
+const ids = [currentUser.uid, targetUid].sort();
+const dmId = ids.join('_');
+// Send DM
+await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'dms', dmId, 'messages'), { text: `[Forwarded] ${text}`, uid: currentUser.uid, name: myProfile.name, photo: myProfile.photoURL, createdAt: Date.now() });
+// Notify
+await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), { to: targetUid, fromName: myProfile.name, type: 'dm', createdAt: Date.now() });
+document.getElementById('forward-modal').classList.add('hidden');
+};
+
+window.handleItemContextMenu = (e, itemId, type, authorId) => {
+    e.preventDefault(); 
+    const isAdmin = myProfile.name === 'CKAD'; 
+    const isAuthor = authorId === currentUser.uid;
+    
+    if(!isAdmin && !isAuthor) return; // Only Admin or Author can act
+    
+    contextTarget = { itemId, type, authorId }; 
+    const menu = document.getElementById('context-menu');
+    let html = `<div class="px-2 text-[10px] text-gray-400 font-bold uppercase tracking-wider py-1">Actions</div>`;
+    
+    if (isAdmin || isAuthor) {
+        html += `<div onclick="window.ctxAction('delete-post')" class="context-menu-item text-red-600"><i class="fa-solid fa-trash mr-2"></i>Delete Post</div>`;
+    }
+    
+    if ((isAdmin || isAuthor) && type === 'game') {
+        html += `<div onclick="window.ctxAction('edit-game')" class="context-menu-item text-indigo-600 dark:text-indigo-400"><i class="fa-solid fa-code mr-2"></i>Edit Code</div>`;
+    }
+    
+    menu.innerHTML = html;
+    let x = e.clientX; let y = e.clientY; 
+    if(x + 200 > window.innerWidth) x -= 200; 
+    if(y + 200 > window.innerHeight) y -= 200; 
+    menu.style.left = `${x}px`; menu.style.top = `${y}px`; 
+    menu.classList.remove('hidden');
+};
+
+window.confirmEditMsg = async () => { const id = document.getElementById('edit-msg-id').value; const val = document.getElementById('edit-msg-input').value; if(val) { const docPath = currentChatMode === 'global' ? doc(db, 'artifacts', appId, 'public', 'data', 'chat', id) : doc(db, 'artifacts', appId, 'public', 'data', 'dms', currentDmId, 'messages', id); await updateDoc(docPath, { text: val }); document.getElementById('edit-msg-modal').classList.add('hidden'); } };
+
+// --- FIRE BOT LOGIC ---
+const generateBotResponse = async (commandLine) => {
+    const parts = commandLine.trim().split(' ');
+    // Remove /FireBot prefix if present for cleaner parsing, but users might just type "magic 8 ball" in DM
+    let cmd, arg;
+    
+    if (commandLine.toLowerCase().startsWith('/firebot')) {
+        cmd = parts[1] ? parts[1].toLowerCase() : '';
+        arg = parts.slice(2).join(' ');
+    } else {
+        // In DM, allow commands without prefix or just chat
+        cmd = parts[0] ? parts[0].toLowerCase() : '';
+        arg = parts.slice(1).join(' ');
+    }
+
+    let reply = "";
+
+    switch(cmd) {
+        case 'level':
+            const xp = myProfile.xp || 0;
+            const level = Math.floor(Math.sqrt(xp));
+            const nextLevelXp = Math.pow(level + 1, 2);
+            const prevLevelXp = Math.pow(level, 2);
+            const progress = Math.round(((xp - prevLevelXp) / (nextLevelXp - prevLevelXp)) * 100);
+            
+            reply = `
+            <div class="font-bold text-lg mb-1">🔥 Level ${level}</div>
+            <div class="text-xs text-gray-500 mb-2">${xp} XP Total</div>
+            <div class="w-full bg-gray-300 rounded-full h-2.5 dark:bg-gray-700">
+                <div class="bg-indigo-600 h-2.5 rounded-full" style="width: ${progress}%"></div>
+            </div>
+            <div class="text-xs text-right mt-1 text-gray-400">${progress}% to next level</div>
+            `;
+            break;
+            
+        case 'status':
+            if(!arg) { reply = "Usage: /FireBot Status [Username]"; break; }
+            const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'profiles'), where('name', '==', arg));
+            const snap = await getDocs(q);
+            if(snap.empty) { reply = "User not found."; break; }
+            
+            const p = snap.docs[0].data();
+            const lastSeen = p.lastSeen || 0;
+            const diff = Date.now() - lastSeen;
+            
+            if (diff < 5 * 60 * 1000) { // 5 mins
+                reply = `✅ <b>${p.name}</b> is currently <b>ONLINE</b>.`;
+            } else {
+                const mins = Math.floor(diff / 60000);
+                const hours = Math.floor(mins / 60);
+                const timeStr = hours > 0 ? `${hours} hours ago` : `${mins} minutes ago`;
+                reply = `💤 <b>${p.name}</b> is <b>OFFLINE</b>. Last seen: ${timeStr}.`;
+            }
+            break;
+            
+        case 'commands':
+            reply = `
+            <b>Fire Bot Commands:</b><br>
+            /FireBot Level - Check your level<br>
+            /FireBot Status [Name] - Check online status<br>
+            /FireBot Flip - Flip a coin<br>
+            /FireBot Joke - Tell a dad joke<br>
+            /FireBot Magic 8 Ball [Q] - Ask the Oracle
+            `;
+            break;
+            
+        case 'flip':
+            const res = Math.random() > 0.5 ? "Heads" : "Tails";
+            reply = `🪙 Coin flip: <b>${res}</b>`;
+            break;
+            
+        case 'joke':
+            const jokes = [
+                "I'm afraid for the calendar. Its days are numbered.",
+                "Why do fathers take an extra pair of socks when they go golfing? In case they get a hole in one!",
+                "Singing in the shower is fun until you get soap in your mouth. Then it's a soap opera.",
+                "What do you call a fake noodle? An Impasta.",
+                "Why did the scarecrow win an award? Because he was outstanding in his field."
+            ];
+            reply = `😂 ${jokes[Math.floor(Math.random() * jokes.length)]}`;
+            break;
+
+        case 'magic': // Magic 8 Ball
+            if (parts[1] && parts[1].toLowerCase() === '8' && parts[2] && parts[2].toLowerCase() === 'ball') {
+                const answers = [
+                    "It is certain.", "It is decidedly so.", "Without a doubt.", "Yes definitely.",
+                    "You may rely on it.", "As I see it, yes.", "Most likely.", "Outlook good.",
+                    "Yes.", "Signs point to yes.", "Reply hazy, try again.", "Ask again later.",
+                    "Better not tell you now.", "Cannot predict now.", "Concentrate and ask again.",
+                    "Don't count on it.", "My reply is no.", "My sources say no.", "Outlook not so good.", "Very doubtful."
+                ];
+                const answer = answers[Math.floor(Math.random() * answers.length)];
+                reply = `🎱 <b>Magic 8 Ball says:</b> ${answer}`;
+            } else {
+                reply = "Usage: /FireBot Magic 8 Ball [Question]";
+            }
+            break;
+            
+        default:
+            // Generic DM chatter fallback
+            if (!commandLine.toLowerCase().startsWith('/firebot')) {
+                reply = "I am Fire Bot! 🤖 Beep boop. Use <b>/FireBot Commands</b> to see what I can do!";
+            } else {
+                reply = "Unknown command. Try <b>/FireBot Commands</b>";
+            }
+    }
+    return reply;
+};
+
+// Handles global chat ephemeral messages
+const handleBotCommand = async (commandLine) => {
+    const reply = await generateBotResponse(commandLine);
+    addLocalMessage(reply, true);
+};
+
+const addLocalMessage = (html, isBot) => {
+    const list = document.getElementById('messages-list');
+    const div = document.createElement('div');
+    div.className = "flex gap-2 message-enter";
+    
+    const avatar = isBot 
+        ? `<div class="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white border-2 border-yellow-400 shadow-lg"><i class="fa-solid fa-fire"></i></div>` 
+        : window.getAvatarHTML(myProfile.photoURL, myProfile.name, 'w-8 h-8');
+        
+    const name = isBot ? "Fire Bot" : myProfile.name;
+    const bgClass = isBot ? "bg-slate-800 text-white border border-red-500 shadow-red-500/20" : "bg-gray-200 dark:bg-slate-700 dark:text-gray-200";
+    const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+    div.innerHTML = `<div>${avatar}</div><div class="flex flex-col items-start max-w-[80%]"><span class="text-[10px] text-gray-500 mb-0.5 px-1">${name} <span class="opacity-50 ml-1">• ${time}</span></span><div class="${bgClass} px-3 py-2 rounded-xl rounded-tl-sm text-sm break-words shadow-sm">${html}</div></div>`;
+    list.appendChild(div);
+    list.parentElement.scrollTop = list.parentElement.scrollHeight;
+};
+
+async function sendMessage() {
+    if (myProfile.timeoutUntil && myProfile.timeoutUntil > Date.now()) {
+        const remaining = Math.ceil((myProfile.timeoutUntil - Date.now()) / 60000);
+        return alert(`You are timed out for ${remaining} more minutes.`);
+    }
+    const inp = document.getElementById('message-input'); 
+    const txt = inp.value.trim(); 
+    if(!txt) return; 
+    
+    // --- SPECIAL CASE: FIRE BOT DM ---
+    if (currentChatMode !== 'global' && currentDmId.includes(FIRE_BOT_UID)) {
+        inp.value = '';
+        const ref = collection(db, 'artifacts', appId, 'public', 'data', 'dms', currentDmId, 'messages');
+        
+        // 1. Save User Message
+        await addDoc(ref, { text: txt, uid: currentUser.uid, name: myProfile.name, photo: myProfile.photoURL, createdAt: Date.now() });
+        
+        // 2. Generate and Save Bot Response
+        setTimeout(async () => {
+            const reply = await generateBotResponse(txt);
+            await addDoc(ref, { text: reply, uid: FIRE_BOT_UID, name: 'Fire Bot', photo: '', createdAt: Date.now() });
+        }, 500); // Small delay for realism
+        return;
+    }
+
+    // --- Global Chat Bot Interception ---
+    if(txt.toLowerCase().startsWith('/firebot')) {
+        addLocalMessage(txt, false); // Show my command locally
+        inp.value = '';
+        handleBotCommand(txt);
+        return;
+    }
+    
+    // --- XP & Normal Send ---
+    inp.value = '';
+    
+    // Increment XP
+    updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', currentUser.uid), {
+        xp: increment(5), // 5 XP per message
+        lastSeen: Date.now()
+    }).catch(e => {});
+
+    let ref; 
+    if (currentChatMode === 'global') { 
+        ref = collection(db, 'artifacts', appId, 'public', 'data', 'chat'); 
+    } else { 
+        ref = collection(db, 'artifacts', appId, 'public', 'data', 'dms', currentDmId, 'messages'); 
+    }
+    
+    const payload = { text: txt, uid: currentUser.uid, name: myProfile.name, photo: myProfile.photoURL, createdAt: Date.now() };
+    if(replyingTo) { payload.replyTo = { id: replyingTo.id, name: replyingTo.name, text: replyingTo.text, uid: replyingTo.uid }; window.cancelReply(); }
+    await addDoc(ref, payload);
+
+    // If DM, send notification signal
+    if (currentChatMode !== 'global') {
+        // Determine target UID from DM ID
+        const uids = currentDmId.split('_');
+        const targetUid = uids.find(id => id !== currentUser.uid);
+        if(targetUid) {
+            // Check for Ping in text
+            const isPing = txt.includes(`@`); // Simple check, exact matching is done on render
+            
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notifications'), {
+                to: targetUid,
+                fromName: myProfile.name,
+                type: 'dm',
+                isPing: isPing,
+                createdAt: Date.now()
+            });
+        }
+    }
+}
+
+document.getElementById('send-btn').addEventListener('click', (e) => { e.preventDefault(); sendMessage(); });
+document.getElementById('message-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+document.getElementById('chat-image-input').onchange = (e) => { const f = e.target.files[0]; if(f && f.size < 500000) { const r = new FileReader(); r.onload = async (ev) => { let ref; if (currentChatMode === 'global') { ref = collection(db, 'artifacts', appId, 'public', 'data', 'chat'); } else { ref = collection(db, 'artifacts', appId, 'public', 'data', 'dms', currentDmId, 'messages'); } await addDoc(ref, { text: ev.target.result, type: 'image', uid: currentUser.uid, name: myProfile.name, photo: myProfile.photoURL, createdAt: Date.now() }); }; r.readAsDataURL(f); } };
+
+window.switchMainTab = (t) => { document.getElementById('feed-discover').classList.add('hidden'); document.getElementById('feed-mine').classList.add('hidden'); document.getElementById('tab-discover').className = "px-6 py-4 font-semibold text-sm transition-colors tab-inactive"; document.getElementById('tab-mine').className = "px-6 py-4 font-semibold text-sm transition-colors tab-inactive"; document.getElementById('feed-'+t).classList.remove('hidden'); document.getElementById('tab-'+t).className = "px-6 py-4 font-semibold text-sm transition-colors tab-active"; };
+window.toggleDarkMode = () => { document.body.classList.toggle('dark'); const t = document.getElementById('dm-toggle'); if(document.body.classList.contains('dark')) { t.classList.add('bg-indigo-600'); t.children[0].classList.add('translate-x-4'); localStorage.setItem('darkMode', 'true'); } else { t.classList.remove('bg-indigo-600'); t.children[0].classList.remove('translate-x-4'); localStorage.setItem('darkMode', 'false'); } }; if(localStorage.getItem('darkMode') === 'true') window.toggleDarkMode();
+document.getElementById('btn-friends').addEventListener('click', () => { 
+    document.getElementById('friends-modal').classList.remove('hidden'); 
+    // Clear badges on open
+    const b = document.getElementById('friend-badge');
+    b.classList.add('hidden');
+    b.classList.remove('bg-red-500', 'bg-orange-500');
+    initSocial(); 
+});
+window.switchFriendTab = (t) => { ['list', 'requests', 'add'].forEach(tab => { document.getElementById('ftab-'+tab).className = "flex-1 py-3 text-sm text-gray-500"; }); document.getElementById('friend-list-container').classList.add('hidden'); document.getElementById('requests-container').classList.add('hidden'); document.getElementById('add-friend-container').classList.add('hidden'); document.getElementById('ftab-'+t).className = "flex-1 py-3 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600"; if(t === 'list') document.getElementById('friend-list-container').classList.remove('hidden'); if(t === 'requests') document.getElementById('requests-container').classList.remove('hidden'); if(t === 'add') document.getElementById('add-friend-container').classList.remove('hidden'); };
+window.sendReq = async (nameOverride, uidOverride) => { let targetUid = uidOverride; let targetName = nameOverride; if (!targetUid) { targetName = document.getElementById('add-friend-input').value.trim(); if(!targetName) return alert("Enter a username"); const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'profiles'), where('name', '==', targetName)); const snap = await getDocs(q); if(snap.empty) return alert("User not found"); targetUid = snap.docs[0].id; } if(targetUid === currentUser.uid) return alert("Can't add yourself"); await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'friend_requests'), { from: currentUser.uid, fromName: myProfile.name, to: targetUid, createdAt: Date.now() }); if(!uidOverride) { alert("Request sent!"); document.getElementById('add-friend-input').value = ""; } };
+window.acceptReq = async (reqId, fromUid) => { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'friendships'), { users: [currentUser.uid, fromUid], createdAt: Date.now() }); await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'friend_requests', reqId)); };
+window.declineReq = async (reqId) => { await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'friend_requests', reqId)); };
+window.startDm = async (uid) => { 
+    // Handle Fire Bot Name
+    let name = 'User';
+    if (uid === FIRE_BOT_UID) {
+        name = "Fire Bot";
+    } else {
+        const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', uid)); 
+        name = snap.exists() ? snap.data().name : 'User'; 
+    }
+    
+    const ids = [currentUser.uid, uid].sort(); 
+    currentDmId = ids.join('_'); 
+    document.getElementById('friends-modal').classList.add('hidden'); 
+    document.getElementById('context-menu').classList.add('hidden'); 
+    document.getElementById('view-content').classList.add('translate-x-full'); 
+    document.getElementById('header-title').textContent = "Global Chat"; 
+    document.getElementById('view-toggle-btn').innerHTML = '<i class="fa-solid fa-gamepad"></i>'; 
+    document.getElementById('dm-header').classList.remove('hidden'); 
+    document.getElementById('dm-recipient-name').textContent = name; 
+    initChat('dm', currentDmId); 
+};
+window.exitDm = () => { document.getElementById('dm-header').classList.add('hidden'); initChat('global'); };
+window.openCreationModal = () => document.getElementById('creation-modal').classList.remove('hidden');
+document.getElementById('btn-create-main').addEventListener('click', window.openCreationModal);
+
+window.startCreation = (type) => {
+editingItemId = null;
+document.getElementById('creation-modal').classList.add('hidden');
+
+if(type === 'post' || type === 'text') {
+document.getElementById('post-editor').classList.remove('hidden');
+document.getElementById('post-title').value = '';
+document.getElementById('post-url').value = '';
+document.getElementById('post-desc').value = '';
+document.getElementById('post-file').value = '';
+document.getElementById('post-type').value = type;
+document.getElementById('post-editor-title').textContent = type === 'text' ? "New Text Post" : "New Media Post";
+
+// Hide image input for text posts
+if(type === 'text') {
+document.getElementById('post-image-section').classList.add('hidden');
+} else {
+document.getElementById('post-image-section').classList.remove('hidden');
+}
+} else {
+document.getElementById('code-editor-overlay').classList.remove('hidden');
+document.getElementById('code-title').value = '';
+document.getElementById('code-area').value = '<!-- Write your HTML/JS Game here -->\n<h1>My Game</h1>';
+}
+};
+
+window.submitPost = async () => {
+const title = document.getElementById('post-title').value;
+const type = document.getElementById('post-type').value;
+let url = document.getElementById('post-url').value;
+const file = document.getElementById('post-file').files[0];
+const desc = document.getElementById('post-desc').value;
+
+if(!title) return alert("Title required");
+
+if(type === 'post' && file) {
+if(file.size > 1024 * 1024) return alert("File too large (Max 1MB)");
+const reader = new FileReader();
+reader.onload = async (e) => { await createItem('post', title, desc, e.target.result); };
+reader.readAsDataURL(file);
+} else {
+// For text posts or URL-based media posts
+await createItem(type, title, desc, url);
+}
+};
+
+window.saveCodeProject = async () => { const title = document.getElementById('code-title').value; const code = document.getElementById('code-area').value; if(!title) return alert("Title required"); if (editingItemId) { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', editingItemId), { title, code }); alert("Game updated!"); document.getElementById('code-editor-overlay').classList.add('hidden'); } else { await createItem('game', title, '', null, code); } };
+window.runCode = () => { const win = window.open(); win.document.write(document.getElementById('code-area').value); };
+async function createItem(type, title, desc, mediaURL, code=null) { document.getElementById('post-editor').classList.add('hidden'); document.getElementById('code-editor-overlay').classList.add('hidden'); await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), { type, title, desc, mediaURL, code, authorId: currentUser.uid, authorName: myProfile.name, authorPhoto: myProfile.photoURL, createdAt: Date.now(), likes: [], commentsCount: 0 }); alert("Published!"); }
+window.deleteItem = async (id) => { if(confirm("Delete this?")) await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', id)); };
+window.viewItem = async (id) => { currentItem = id; const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', id)); if(!docSnap.exists()) return; const data = docSnap.data(); document.getElementById('content-viewer').classList.remove('hidden'); document.getElementById('viewer-title').textContent = data.title; document.getElementById('viewer-author').textContent = data.authorName; document.getElementById('viewer-likes').textContent = data.likes ? data.likes.length : 0; 
+
+// Fullscreen Button Logic
+const fsBtn = document.getElementById('btn-fullscreen');
+if(data.type === 'game') {
+    fsBtn.classList.remove('hidden');
+    fsBtn.onclick = () => document.getElementById('viewer-stage').children[0].requestFullscreen();
+} else {
+    fsBtn.classList.add('hidden');
+}
+
+const stage = document.getElementById('viewer-stage'); stage.innerHTML = ''; if(data.type === 'game') { const iframe = document.createElement('iframe'); iframe.className = "w-full h-full bg-white border-0"; iframe.srcdoc = data.code; stage.appendChild(iframe); } else if (data.type === 'text') { stage.innerHTML = `<div class="text-white p-8 text-lg font-serif leading-relaxed max-w-2xl mx-auto">${data.desc}</div>`; } else { if(data.mediaURL) { const img = document.createElement('img'); img.src = data.mediaURL; img.className = "max-w-full max-h-full object-contain"; stage.appendChild(img); } else { stage.innerHTML = `<div class="text-white text-center p-8">${data.desc}</div>`; } } const cList = document.getElementById('comments-list'); cList.innerHTML = '<div class="text-center text-gray-500 text-sm">Loading comments...</div>'; const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'items', id, 'comments'), orderBy('createdAt')); onSnapshot(q, (snap) => { cList.innerHTML = ''; if(snap.empty) cList.innerHTML = '<div class="text-center text-gray-500 text-sm mt-4">No comments yet.</div>'; snap.forEach(d => { const c = d.data(); const div = document.createElement('div'); div.className = "flex gap-2 mb-3 text-sm"; const avatarHTML = window.getAvatarHTML(c.userPhoto, c.userName, 'w-8 h-8'); div.innerHTML = `${avatarHTML}<div><div class="flex items-baseline gap-2"><span class="font-bold dark:text-gray-200">${c.userName}</span><span class="text-xs text-gray-400">${new Date(c.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div><p class="dark:text-gray-300">${c.text}</p></div>`; cList.appendChild(div); }); cList.scrollTop = cList.scrollHeight; }); };
+
+document.getElementById('comment-form').onsubmit = async (e) => { 
+    e.preventDefault(); 
+    // Cooldown check
+    if(Date.now() - lastCommentTime < 60000) return alert("Please wait 1 minute between comments.");
+
+    const input = document.getElementById('comment-input'); 
+    const text = input.value.trim(); 
+    if(!text || !currentItem) return; 
+    input.value = ''; 
+    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items', currentItem, 'comments'), { text, userId: currentUser.uid, userName: myProfile.name, userPhoto: myProfile.photoURL, createdAt: Date.now() }); 
+    updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', currentItem), { commentsCount: (parseInt(document.getElementById('viewer-likes').nextElementSibling?.textContent) || 0) + 1 }).catch(()=>{}); 
+    
+    lastCommentTime = Date.now();
+};
+window.toggleLike = async () => { if(!currentItem) return; const ref = doc(db, 'artifacts', appId, 'public', 'data', 'items', currentItem); const snap = await getDoc(ref); const likes = snap.data().likes || []; const idx = likes.indexOf(currentUser.uid); if(idx === -1) likes.push(currentUser.uid); else likes.splice(idx, 1); await updateDoc(ref, { likes }); document.getElementById('viewer-likes').textContent = likes.length; const heart = document.getElementById('viewer-heart'); if(likes.includes(currentUser.uid)) { heart.classList.remove('fa-regular'); heart.classList.add('fa-solid'); } else { heart.classList.add('fa-regular'); heart.classList.remove('fa-solid'); } };
+window.closeViewer = () => document.getElementById('content-viewer').classList.add('hidden');
+document.getElementById('btn-profile').onclick = () => {
+editingProfileUid = null; // Clear edit mode
+pendingAvatarBase64 = null; // Clear pending avatar
+document.getElementById('profile-modal-title').textContent = "Edit Profile";
+document.getElementById('username-input').value = myProfile.name;
+document.getElementById('avatar-url-input').value = ''; // Reset URL input
+
+// Reset visual state
+if(myProfile.photoURL) {
+    document.getElementById('profile-preview').src = myProfile.photoURL;
+    document.getElementById('profile-preview').classList.remove('hidden');
+    document.getElementById('profile-preview-placeholder').classList.add('hidden');
+} else {
+    document.getElementById('profile-preview').classList.add('hidden');
+    document.getElementById('profile-preview-placeholder').classList.remove('hidden');
+}
+
+document.getElementById('profile-modal').classList.remove('hidden');
+};
+
+document.getElementById('avatar-upload').onchange = (e) => {
+    const f = e.target.files[0];
+    if(f && f.size < 500000) {
+        const r = new FileReader();
+        r.onload = (ev) => {
+            // Update Preview
+            document.getElementById('profile-preview').src = ev.target.result;
+            document.getElementById('profile-preview').classList.remove('hidden');
+            document.getElementById('profile-preview-placeholder').classList.add('hidden');
+            
+            // Set Pending Logic
+            pendingAvatarBase64 = ev.target.result;
+            document.getElementById('avatar-url-input').value = ''; // Clear URL input if file is chosen
+        };
+        r.readAsDataURL(f);
+    } else {
+        alert("File too big (Max 500KB)");
+    }
+};
+
+// URL Input Change - Reset Pending File
+document.getElementById('avatar-url-input').oninput = (e) => {
+    const val = e.target.value;
+    if(val) {
+        pendingAvatarBase64 = null; // Clear pending file if URL is typed
+        document.getElementById('profile-preview').src = val;
+        document.getElementById('profile-preview').classList.remove('hidden');
+        document.getElementById('profile-preview-placeholder').classList.add('hidden');
+    }
+};
+
+document.getElementById('save-profile-btn').onclick = async () => {
+let name = document.getElementById('username-input').value.trim();
+// 1. Sanitize
+name = name.replace(/[\u200B-\u200D\uFEFF]/g, '');
+if(!name) return alert("Username needed");
+if(name.length < 3) return alert("Username too short");
+
+// Determine Photo: File Upload (Base64) OR Text Input (URL) OR Keep Existing
+let photo = pendingAvatarBase64 || document.getElementById('avatar-url-input').value.trim() || myProfile.photoURL;
+// If user cleared URL and didn't upload file, and wants to clear photo?
+// For now, if both empty, we keep existing unless explicitly trying to clear (UI doesn't support clear yet)
+
+// 2. Uniqueness Checks
+// IMPORTANT FIX: editingProfileUid is only set when Admin is editing SOMEONE ELSE.
+// If I am editing myself, editingProfileUid is null, so targetUid should be currentUser.uid.
+const targetUid = editingProfileUid || currentUser.uid;
+
+// Check Username Uniqueness
+const qName = query(collection(db, 'artifacts', appId, 'public', 'data', 'profiles'), where('name', '==', name));
+const snapName = await getDocs(qName);
+if(!snapName.empty) {
+    let taken = false;
+    snapName.forEach(d => { if(d.id !== targetUid) taken = true; });
+    if(taken) return alert("Username already taken.");
+}
+
+await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', targetUid), { name, photoURL: photo }, { merge: true });
+
+alert("Profile saved!");
+document.getElementById('profile-modal').classList.add('hidden');
+editingProfileUid = null;
+pendingAvatarBase64 = null;
+};
+
+window.adminEditProfile = async (uid) => {
+const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', uid));
+if(!snap.exists()) return;
+const p = snap.data();
+editingProfileUid = uid;
+pendingAvatarBase64 = null;
+
+document.getElementById('view-profile-modal').classList.add('hidden');
+document.getElementById('profile-modal-title').textContent = "Edit User (Admin Mode)";
+document.getElementById('username-input').value = p.name;
+document.getElementById('avatar-url-input').value = p.photoURL || '';
+
+if(p.photoURL) {
+document.getElementById('profile-preview').src = p.photoURL;
+document.getElementById('profile-preview').classList.remove('hidden');
+document.getElementById('profile-preview-placeholder').classList.add('hidden');
+} else {
+document.getElementById('profile-preview').classList.add('hidden');
+document.getElementById('profile-preview-placeholder').classList.remove('hidden');
+}
+
+document.getElementById('profile-modal').classList.remove('hidden');
+};
+
+window.viewUserProfile = async (uid) => {
+const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'profiles', uid));
+if(!docSnap.exists()) return alert("User not found");
+const p = docSnap.data();
+
+document.getElementById('vp-name').textContent = p.name || 'Unknown';
+document.getElementById('vp-joined').textContent = p.joined ? `Joined ${new Date(p.joined).toLocaleDateString()}` : 'Joined recently';
+
+// Level Display
+const xp = p.xp || 0;
+const lvl = Math.floor(Math.sqrt(xp));
+document.getElementById('vp-level').textContent = `Level ${lvl}`;
+
+// Admin Edit Button
+const adminBtn = document.getElementById('vp-admin-edit-btn');
+if(myProfile.name === 'CKAD') {
+adminBtn.classList.remove('hidden');
+adminBtn.onclick = () => window.adminEditProfile(uid);
+} else {
+adminBtn.classList.add('hidden');
+}
+
+document.getElementById('vp-friend-btn').onclick = () => { window.sendReq(p.name); alert(`Friend request sent to ${p.name}!`); };
+const vpAvatarContainer = document.getElementById('vp-avatar-container');
+vpAvatarContainer.innerHTML = window.getAvatarHTML(p.photoURL, p.name, 'w-24 h-24 text-2xl border-4 border-white dark:border-slate-800');
+
+const postsDiv = document.getElementById('vp-posts');
+postsDiv.innerHTML = 'Loading...';
+const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'items'), where('authorId', '==', uid), limit(10));
+const postsSnap = await getDocs(q);
+postsDiv.innerHTML = '';
+if(postsSnap.empty) postsDiv.innerHTML = '<div class="text-gray-400 text-sm">No public posts yet.</div>';
+postsSnap.forEach(d => {
+const item = {id: d.id, ...d.data()};
+const div = document.createElement('div');
+div.className = "bg-gray-100 dark:bg-slate-700 p-2 rounded cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-600 flex items-center gap-2";
+div.onclick = () => { document.getElementById('view-profile-modal').classList.add('hidden'); window.viewItem(item.id); };
+let icon = 'photo-film';
+if(item.type === 'game') icon = 'gamepad';
+if(item.type === 'text') icon = 'align-left';
+div.innerHTML = `<div class="w-8 h-8 bg-indigo-500 rounded flex items-center justify-center text-white"><i class="fa-solid fa-${icon}"></i></div><span class="truncate text-sm font-medium dark:text-white">${item.title}</span>`;
+postsDiv.appendChild(div);
+});
+document.getElementById('view-profile-modal').classList.remove('hidden');
+};
+
+// Start App
+init();
+</script>
+</body>
+</html>
